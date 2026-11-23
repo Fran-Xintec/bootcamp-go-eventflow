@@ -1,0 +1,413 @@
+openapi: 3.0.3
+info:
+  title: EventFlow API
+  version: 0.1.0
+  description: >
+    API de pedidos del desafío EventFlow. Los importes van en centavos
+    (enteros) para evitar errores de redondeo con decimales.
+
+    Correlación: cada petición lleva un identificador `X-Request-Id` (el que envía el cliente,
+    de 1 a 64 caracteres visibles, o uno generado). Se devuelve en la respuesta, se incluye en
+    los errores (`request_id`), en el evento `order.created` y en los logs del worker.
+
+    Un pedido nace en estado `created`. Al crearlo se publica el evento `order.created` y un
+    worker independiente lo procesa y pasa el pedido a `confirmed` (unos instantes después).
+
+    Todos los errores siguen el RFC 9457 (Problem Details for HTTP APIs) y se responden con
+    `Content-Type: application/problem+json`. Campos: `type` (identifica el problema),
+    `title` (frase estándar del código HTTP), `status`, `detail` (mensaje en español para
+    leer), `instance` (ruta de la petición) y la extensión `code`, un identificador estable
+    para programar.
+
+    Catálogo de errores:
+
+    | Estado | code | Cuándo ocurre |
+    |---|---|---|
+    | 400 | INVALID_JSON | El cuerpo no es JSON, está vacío o un campo tiene el tipo equivocado |
+    | 400 | ORDER_ID_INVALID | El id de la ruta no es un UUID |
+    | 400 | IDEMPOTENCY_KEY_INVALID | `Idempotency-Key` vacía o de más de 128 caracteres |
+    | 413 | REQUEST_TOO_LARGE | El cuerpo supera 1 MiB |
+    | 415 | UNSUPPORTED_MEDIA_TYPE | El `Content-Type` no es `application/json` |
+    | 422 | ORDER_CUSTOMER_REQUIRED | Falta `customer_id`, viene vacío o null |
+    | 422 | ORDER_ITEMS_REQUIRED | Falta `items`, viene vacío o null |
+    | 422 | ORDER_TOO_MANY_ITEMS | Más de 100 artículos |
+    | 422 | ORDER_ITEM_INVALID | Un artículo sin `sku`, o con `quantity` o `unit_price_cents` fuera de rango |
+    | 422 | IDEMPOTENCY_KEY_REUSED | La `Idempotency-Key` ya se usó con un cuerpo distinto |
+    | 404 | ORDER_NOT_FOUND | No existe un pedido con ese id |
+    | 404 | ROUTE_NOT_FOUND | La ruta no existe |
+    | 405 | METHOD_NOT_ALLOWED | La ruta existe pero no admite ese método |
+    | 500 | INTERNAL_001 | Error inesperado; el detalle solo queda en el log |
+    | 503 | REQUEST_TIMEOUT | La operación superó el plazo de la petición (se puede reintentar) |
+    | 503 | NOT_READY | La base de datos no responde (`/health/ready`) |
+
+servers:
+  - url: http://localhost:8080
+    description: Local (docker compose)
+
+# La API no tiene autenticación (fuera del alcance del desafío).
+security: []
+
+paths:
+  /health/live:
+    get:
+      operationId: healthLive
+      summary: El proceso está vivo
+      responses:
+        "200":
+          description: El proceso responde.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /health/ready:
+    get:
+      operationId: healthReady
+      summary: El servicio puede atender peticiones (la base de datos responde)
+      description: RabbitMQ no se incluye a propósito, porque la API sigue siendo útil sin el broker.
+      responses:
+        "200":
+          description: La base de datos responde.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: ok
+        "503":
+          description: La base de datos no responde.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /metrics:
+    get:
+      operationId: metrics
+      summary: Métricas en formato Prometheus
+      description: Total de peticiones HTTP (`http_requests_total`) y su duración (`http_request_duration_seconds`).
+      responses:
+        "200":
+          description: Métricas en texto plano.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /orders:
+    post:
+      operationId: createOrder
+      summary: Crear un pedido
+      description: >
+        Con la cabecera opcional `Idempotency-Key` el reintento es seguro: repetir la misma clave
+        con el mismo cuerpo no crea nada: responde `200` con el pedido original y la cabecera
+        `Idempotent-Replayed: true` (solo la petición que crea el pedido responde `201`). La misma
+        clave con otro cuerpo responde `422`. Sin la cabecera, cada petición crea un pedido nuevo. Las claves no caducan.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Identifica la intención del cliente. Se genera una vez por pedido y se reutiliza en los reintentos.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            example: 9e4d2371-4b8e-4d15-9a02-c1e5f8b7d340
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+            example:
+              customer_id: cliente-1
+              items:
+                - { sku: A-1, quantity: 2, unit_price_cents: 1500 }
+                - { sku: B-2, quantity: 1, unit_price_cents: 999 }
+      responses:
+        "201":
+          description: Pedido creado con estado inicial `created`.
+          headers:
+            Location:
+              description: URL del pedido nuevo.
+              schema:
+                type: string
+                example: /orders/6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateOrderResponse"
+              example:
+                id: 6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111
+                status: created
+                total_cents: 3999
+        "200":
+          description: Reintento con una `Idempotency-Key` ya usada y el mismo cuerpo. No se creó ningún pedido nuevo; se devuelve el original.
+          headers:
+            Idempotent-Replayed:
+              description: Siempre `true` en esta respuesta.
+              schema:
+                type: string
+                example: "true"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateOrderResponse"
+              example:
+                id: 6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111
+                status: created
+                total_cents: 3999
+        "400":
+          description: El cuerpo no se puede interpretar (JSON roto, vacío o con tipos equivocados). No se crea ningún pedido.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/INVALID_JSON
+                title: Bad Request
+                status: 400
+                detail: el cuerpo de la petición no es un JSON válido
+                instance: /orders
+                code: INVALID_JSON
+        "413":
+          description: El cuerpo supera 1 MiB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/REQUEST_TOO_LARGE
+                title: Content Too Large
+                status: 413
+                detail: el cuerpo supera el máximo de 1 MiB
+                instance: /orders
+                code: REQUEST_TOO_LARGE
+        "415":
+          description: El `Content-Type` no es `application/json`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/UNSUPPORTED_MEDIA_TYPE
+                title: Unsupported Media Type
+                status: 415
+                detail: el Content-Type debe ser application/json
+                instance: /orders
+                code: UNSUPPORTED_MEDIA_TYPE
+        "422":
+          description: >
+            El JSON se entiende pero incumple una regla del pedido, o la `Idempotency-Key` ya se usó
+            con un cuerpo distinto. No se crea ningún pedido.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                regla:
+                  summary: Regla del pedido
+                  value:
+                    type: /problems/ORDER_ITEMS_REQUIRED
+                    title: Unprocessable Entity
+                    status: 422
+                    detail: se requiere al menos un artículo
+                    instance: /orders
+                    code: ORDER_ITEMS_REQUIRED
+                clave:
+                  summary: Clave de idempotencia reutilizada
+                  value:
+                    type: /problems/IDEMPOTENCY_KEY_REUSED
+                    title: Unprocessable Entity
+                    status: 422
+                    detail: la Idempotency-Key ya se usó con un cuerpo distinto
+                    instance: /orders
+                    code: IDEMPOTENCY_KEY_REUSED
+        "503":
+          description: Se agotó el plazo de la petición. Se puede reintentar (con la misma `Idempotency-Key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/REQUEST_TIMEOUT
+                title: Service Unavailable
+                status: 503
+                detail: La operación tardó más de lo permitido, se puede reintentar
+                instance: /orders
+                code: REQUEST_TIMEOUT
+        "500":
+          description: Error interno. El mensaje es genérico; el detalle solo queda en el log.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/INTERNAL_001
+                title: Internal Server Error
+                status: 500
+                detail: Error interno del servidor
+                instance: /orders
+                code: INTERNAL_001
+
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      summary: Consultar un pedido
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: El pedido con sus artículos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+              example:
+                id: 6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111
+                customer_id: cliente-1
+                status: created
+                total_cents: 3999
+                items:
+                  - { sku: A-1, quantity: 2, unit_price_cents: 1500 }
+                  - { sku: B-2, quantity: 1, unit_price_cents: 999 }
+        "400":
+          description: El id no es un UUID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/ORDER_ID_INVALID
+                title: Bad Request
+                status: 400
+                detail: el id del pedido debe ser un UUID válido
+                instance: /orders/abc
+                code: ORDER_ID_INVALID
+        "404":
+          description: No existe un pedido con ese id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: /problems/ORDER_NOT_FOUND
+                title: Not Found
+                status: 404
+                detail: Pedido no encontrado
+                instance: /orders/6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111
+                code: ORDER_NOT_FOUND
+        "500":
+          description: Error interno.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  schemas:
+    Item:
+      type: object
+      required: [sku, quantity, unit_price_cents]
+      properties:
+        sku:
+          type: string
+          minLength: 1
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        unit_price_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000000000
+
+    CreateOrderRequest:
+      type: object
+      required: [customer_id, items]
+      properties:
+        customer_id:
+          type: string
+          minLength: 1
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Item"
+
+    CreateOrderResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [created, confirmed]
+        total_cents:
+          type: integer
+          format: int64
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+        status:
+          type: string
+          enum: [created, confirmed]
+        total_cents:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+
+    Problem:
+      type: object
+      required: [type, title, status, detail, code]
+      properties:
+        type:
+          type: string
+          example: /problems/ORDER_NOT_FOUND
+        title:
+          type: string
+          example: Not Found
+        status:
+          type: integer
+          example: 404
+        detail:
+          type: string
+          example: Pedido no encontrado
+        instance:
+          type: string
+          example: /orders/6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111
+        code:
+          type: string
+          example: ORDER_NOT_FOUND
+        request_id:
+          type: string
+          example: 5d0c1f9e-3b64-4a3e-9a1e-0f4e6c0b7a21

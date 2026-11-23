@@ -1,0 +1,2068 @@
+{
+  "info": {
+    "name": "EventFlow API",
+    "description": "Colección de pruebas manuales y automáticas de EventFlow. Cada request trae pruebas (pestaña Tests) que verifican estado, formato y código de error. Organización: una carpeta por nivel del desafío (Nivel N - nombre) y dentro una subcarpeta por escenario (N.M). Los niveles nuevos se agregan como carpetas nuevas sin tocar las anteriores. Ejecutar en orden de arriba hacia abajo. Variable baseUrl en el environment 'EventFlow local'.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Nivel 1 - API",
+      "description": "RF-01 a RF-08. Una subcarpeta por caso de uso o escenario.",
+      "item": [
+        {
+          "name": "1.1 Crear pedido - happy path",
+          "description": "Crear pedidos válidos. La primera request guarda el id en orderId.",
+          "item": [
+            {
+              "name": "Crear pedido (2 artículos)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Happy path. El total es 2 × 1500 + 1 × 999 = 3999 centavos. Guarda el id en la variable orderId.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "const body = pm.response.json();",
+                      "pm.test(\"Trae id, estado created y total 3999\", function () {",
+                      "    pm.expect(body.id).to.be.a(\"string\").and.not.empty;",
+                      "    pm.expect(body.status).to.eql(\"created\");",
+                      "    pm.expect(body.total_cents).to.eql(3999);",
+                      "});",
+                      "pm.test(\"Location apunta al pedido nuevo\", function () { pm.expect(pm.response.headers.get(\"Location\")).to.eql(\"/orders/\" + body.id); });",
+                      "pm.collectionVariables.set(\"orderId\", body.id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Crear pedido (1 artículo, mínimo válido)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Caso límite válido: un artículo, cantidad 1 y precio 1 centavo.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-2\",\n  \"items\": [\n    {\n      \"sku\": \"C-3\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 1\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"Total 1\", function () { pm.expect(pm.response.json().total_cents).to.eql(1); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "1.2 Crear pedido - cuerpo ilegible (400)",
+          "description": "La petición no se puede interpretar: no se crea ningún pedido.",
+          "item": [
+            {
+              "name": "JSON roto",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El cuerpo no es JSON válido.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"customer_id\": ",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 400\", function () { pm.response.to.have.status(400); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(400);",
+                      "});",
+                      "pm.test(\"Código de error INVALID_JSON\", function () { pm.expect(pm.response.json().code).to.eql(\"INVALID_JSON\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Cuerpo vacío",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "No se envía cuerpo.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 400\", function () { pm.response.to.have.status(400); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(400);",
+                      "});",
+                      "pm.test(\"Código de error INVALID_JSON\", function () { pm.expect(pm.response.json().code).to.eql(\"INVALID_JSON\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Tipo equivocado (quantity como texto)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "quantity debe ser un entero.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"customer_id\":\"c1\",\"items\":[{\"sku\":\"A\",\"quantity\":\"dos\",\"unit_price_cents\":100}]}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 400\", function () { pm.response.to.have.status(400); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(400);",
+                      "});",
+                      "pm.test(\"Código de error INVALID_JSON\", function () { pm.expect(pm.response.json().code).to.eql(\"INVALID_JSON\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "1.3 Crear pedido - validación (422)",
+          "description": "El JSON se entiende pero incumple una regla del pedido: no se crea ningún pedido.",
+          "item": [
+            {
+              "name": "Sin customer_id",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El cliente viene vacío.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_CUSTOMER_REQUIRED\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_CUSTOMER_REQUIRED\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "customer_id null",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El campo viene como null.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"customer_id\": null, \"items\": [{\"sku\": \"A\", \"quantity\": 1, \"unit_price_cents\": 100}]}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_CUSTOMER_REQUIRED\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_CUSTOMER_REQUIRED\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "items null",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "items viene como null.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"customer_id\": \"cliente-1\", \"items\": null}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEMS_REQUIRED\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEMS_REQUIRED\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Lista de artículos vacía",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "items es una lista vacía.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": []\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEMS_REQUIRED\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEMS_REQUIRED\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Sin lista de artículos",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Falta el campo items.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"customer_id\":\"cliente-1\"}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEMS_REQUIRED\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEMS_REQUIRED\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Artículo sin sku",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El sku viene vacío.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEM_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEM_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Cantidad cero",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "quantity debe ser mayor que 0.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"A\",\n      \"quantity\": 0,\n      \"unit_price_cents\": 100\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEM_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEM_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Cantidad negativa",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "quantity no puede ser negativa.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"A\",\n      \"quantity\": -1,\n      \"unit_price_cents\": 100\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEM_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEM_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Cantidad sobre el máximo (100001)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El máximo es 100000.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"A\",\n      \"quantity\": 100001,\n      \"unit_price_cents\": 100\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEM_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEM_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Precio cero",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "unit_price_cents debe ser mayor que 0.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"A\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 0\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEM_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEM_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Precio negativo",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "unit_price_cents no puede ser negativo.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"A\",\n      \"quantity\": 1,\n      \"unit_price_cents\": -5\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ITEM_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ITEM_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Demasiados artículos (101)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El máximo es 100 artículos.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-1\",\n  \"items\": [\n    {\n      \"sku\": \"S-0\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-1\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-3\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-4\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-5\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-6\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-7\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-8\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-9\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-10\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-11\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-12\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-13\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-14\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-15\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-16\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-17\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-18\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-19\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-20\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-21\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-22\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-23\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-24\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-25\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-26\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-27\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-28\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-29\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-30\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-31\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-32\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-33\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-34\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-35\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-36\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-37\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-38\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-39\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-40\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-41\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-42\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-43\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-44\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-45\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-46\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-47\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-48\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-49\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-50\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-51\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-52\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-53\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-54\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-55\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-56\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-57\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-58\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-59\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-60\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-61\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-62\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-63\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-64\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-65\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-66\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-67\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-68\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-69\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-70\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-71\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-72\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-73\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-74\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-75\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-76\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-77\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-78\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-79\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-80\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-81\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-82\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-83\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-84\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-85\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-86\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-87\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-88\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-89\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-90\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-91\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-92\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-93\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-94\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-95\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-96\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-97\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-98\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-99\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    },\n    {\n      \"sku\": \"S-100\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 100\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_TOO_MANY_ITEMS\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_TOO_MANY_ITEMS\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "1.4 Consultar pedido",
+          "description": "Ejecutar después de 1.1 (usa orderId).",
+          "item": [
+            {
+              "name": "Consultar el pedido recién creado",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders/{{orderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders",
+                    "{{orderId}}"
+                  ]
+                },
+                "description": "Usa el id guardado por la request anterior. Ejecutar primero 'Crear pedido (2 artículos)'."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "const body = pm.response.json();",
+                      "pm.test(\"Devuelve el pedido completo\", function () {",
+                      "    pm.expect(body.id).to.eql(pm.collectionVariables.get(\"orderId\"));",
+                      "    pm.expect(body.customer_id).to.eql(\"cliente-1\");",
+                      "    pm.expect(body.status).to.be.oneOf([\"created\", \"confirmed\"]);  // el worker lo confirma en segundo plano",
+                      "    pm.expect(body.total_cents).to.eql(3999);",
+                      "    pm.expect(body.items).to.have.length(2);",
+                      "    pm.expect(body.items[0].sku).to.eql(\"A-1\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Pedido inexistente (404)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders/6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders",
+                    "6f1b0f7e-8f5c-4c37-9c63-1f0d9d0a1111"
+                  ]
+                },
+                "description": "UUID con formato correcto pero que no existe."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 404\", function () { pm.response.to.have.status(404); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(404);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_NOT_FOUND\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_NOT_FOUND\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Id mal formado (400)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders/abc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders",
+                    "abc"
+                  ]
+                },
+                "description": "El id no es un UUID."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 400\", function () { pm.response.to.have.status(400); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(400);",
+                      "});",
+                      "pm.test(\"Código de error ORDER_ID_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"ORDER_ID_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "1.5 Otros errores de protocolo (404, 405, 415)",
+          "description": "",
+          "item": [
+            {
+              "name": "Content-Type que no es JSON (415)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "text/plain"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El cuerpo debe declararse como application/json.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"customer_id\":\"c1\"}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 415\", function () { pm.response.to.have.status(415); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(415);",
+                      "});",
+                      "pm.test(\"Código de error UNSUPPORTED_MEDIA_TYPE\", function () { pm.expect(pm.response.json().code).to.eql(\"UNSUPPORTED_MEDIA_TYPE\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Ruta inexistente (404)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/nada",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "nada"
+                  ]
+                },
+                "description": "La ruta no existe: responde con el formato de error común."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 404\", function () { pm.response.to.have.status(404); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(404);",
+                      "});",
+                      "pm.test(\"Código de error ROUTE_NOT_FOUND\", function () { pm.expect(pm.response.json().code).to.eql(\"ROUTE_NOT_FOUND\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Método no permitido (405)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "La ruta existe pero no admite DELETE."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 405\", function () { pm.response.to.have.status(405); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(405);",
+                      "});",
+                      "pm.test(\"Código de error METHOD_NOT_ALLOWED\", function () { pm.expect(pm.response.json().code).to.eql(\"METHOD_NOT_ALLOWED\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Nivel 2 - Confiabilidad",
+      "description": "RF-05, RF-10, RF-14. El apagado ordenado (RF-14) se prueba con docker compose stop (ver README).",
+      "item": [
+        {
+          "name": "2.1 Idempotencia (reintentos del cliente)",
+          "description": "RF-10. Ejecutar en orden: la primera petición genera la clave que usan las siguientes.",
+          "item": [
+            {
+              "name": "Primera petición con clave (201)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idemKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Genera una clave nueva en cada corrida y crea el pedido. Guarda el id en idemOrderId.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-idem\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"idemKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"No es un reintento\", function () { pm.expect(pm.response.headers.has(\"Idempotent-Replayed\")).to.eql(false); });",
+                      "pm.collectionVariables.set(\"idemOrderId\", pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Reintento con la misma clave y el mismo cuerpo (200)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idemKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Simula al cliente que no recibió la respuesta y reintenta: no se crea nada, responde 200 con el mismo pedido e Idempotent-Replayed: true.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-idem\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200 (no se creó nada)\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"Es el mismo pedido\", function () { pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"idemOrderId\")); });",
+                      "pm.test(\"Se marca como reintento\", function () { pm.expect(pm.response.headers.get(\"Idempotent-Replayed\")).to.eql(\"true\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Misma clave con otro cuerpo (422)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idemKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "La clave ya se usó con un cuerpo distinto: no se crea nada.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-idem\",\n  \"items\": [\n    {\n      \"sku\": \"Z-9\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 5\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 422\", function () { pm.response.to.have.status(422); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(422);",
+                      "});",
+                      "pm.test(\"Código de error IDEMPOTENCY_KEY_REUSED\", function () { pm.expect(pm.response.json().code).to.eql(\"IDEMPOTENCY_KEY_REUSED\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Clave demasiado larga (400)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "La clave debe tener entre 1 y 128 caracteres.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-idem\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 400\", function () { pm.response.to.have.status(400); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(400);",
+                      "});",
+                      "pm.test(\"Código de error IDEMPOTENCY_KEY_INVALID\", function () { pm.expect(pm.response.json().code).to.eql(\"IDEMPOTENCY_KEY_INVALID\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Sin clave: primer intento (201)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Sin Idempotency-Key cada petición crea un pedido. Guarda el id en noKeyOrderId.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-idem\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.collectionVariables.set(\"noKeyOrderId\", pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Sin clave: repetición crea otro pedido (201)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "Repetir el mismo cuerpo sin clave crea un pedido nuevo: la idempotencia es opcional y depende del cliente.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-idem\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"Es otro pedido\", function () { pm.expect(pm.response.json().id).to.not.eql(pm.collectionVariables.get(\"noKeyOrderId\")); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "2.2 Límites de la petición",
+          "description": "RF-05, N2-01.",
+          "item": [
+            {
+              "name": "Cuerpo mayor a 1 MiB (413)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El cuerpo se arma en el script previo (más de 1 MiB). El máximo es 1 MiB.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const big = { customer_id: \"cliente-grande\", items: [{ sku: \"x\".repeat(1100000), quantity: 1, unit_price_cents: 1 }] };",
+                      "pm.request.body.update(JSON.stringify(big));"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 413\", function () { pm.response.to.have.status(413); });",
+                      "pm.test(\"Es un error RFC 9457 (application/problem+json)\", function () {",
+                      "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                      "    const body = pm.response.json();",
+                      "    [\"type\", \"title\", \"status\", \"detail\", \"instance\", \"code\"].forEach(function (k) { pm.expect(body).to.have.property(k); });",
+                      "    pm.expect(body.status).to.eql(413);",
+                      "});",
+                      "pm.test(\"Código de error REQUEST_TOO_LARGE\", function () { pm.expect(pm.response.json().code).to.eql(\"REQUEST_TOO_LARGE\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Nivel 3 - Event-driven",
+      "description": "RF-09, RF-11, RF-12. Necesita RabbitMQ y el worker levantados (docker compose up). Los duplicados se prueban con pruebas automáticas y a mano (ver README).",
+      "item": [
+        {
+          "name": "3.1 Evento y confirmación por el worker",
+          "description": "RF-09, RF-12. Ejecutar en orden.",
+          "item": [
+            {
+              "name": "Crear pedido (publica order.created)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "La API guarda el pedido y publica el evento en RabbitMQ.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-evento\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 1000\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"Nace en estado created\", function () { pm.expect(pm.response.json().status).to.eql(\"created\"); });",
+                      "pm.collectionVariables.set(\"eventOrderId\", pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "El worker confirmó el pedido (confirmed)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders/{{eventOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders",
+                    "{{eventOrderId}}"
+                  ]
+                },
+                "description": "Espera unos segundos y consulta: el worker consumió el evento y pasó el pedido a confirmed."
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "setTimeout(function () {}, 4000);  // da tiempo al worker (se procesa en segundo plano)"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"El estado es confirmed\", function () { pm.expect(pm.response.json().status).to.eql(\"confirmed\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "3.2 Fallo transitorio: reintentos",
+          "description": "RF-11. Tarda unos segundos por las esperas de los reintentos.",
+          "item": [
+            {
+              "name": "Crear pedido con fallo transitorio",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El cliente demo-fallo-transitorio hace fallar a la notificación simulada en los 2 primeros intentos.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"demo-fallo-transitorio\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 1000\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"Nace en estado created\", function () { pm.expect(pm.response.json().status).to.eql(\"created\"); });",
+                      "pm.collectionVariables.set(\"transientOrderId\", pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Tras los reintentos (1 s y 2 s) quedó confirmed",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders/{{transientOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders",
+                    "{{transientOrderId}}"
+                  ]
+                },
+                "description": "El worker reintentó con espera creciente y al tercer intento funcionó."
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "setTimeout(function () {}, 6000);  // da tiempo al worker (se procesa en segundo plano)"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"El estado es confirmed\", function () { pm.expect(pm.response.json().status).to.eql(\"confirmed\"); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "3.3 Fallo permanente: cola de fallidos",
+          "description": "RF-11, RF-12. Tarda unos 15 segundos.",
+          "item": [
+            {
+              "name": "Crear pedido con fallo permanente",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El cliente demo-fallo-permanente hace fallar a la notificación en todos los intentos.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"demo-fallo-permanente\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 1000\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"Nace en estado created\", function () { pm.expect(pm.response.json().status).to.eql(\"created\"); });",
+                      "pm.collectionVariables.set(\"permanentOrderId\", pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Agotados los reintentos sigue created",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/orders/{{permanentOrderId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders",
+                    "{{permanentOrderId}}"
+                  ]
+                },
+                "description": "El worker reintentó 3 veces (1 s, 2 s y 4 s) y rechazó el mensaje: el pedido no se confirma."
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "setTimeout(function () {}, 8500);  // da tiempo al worker (se procesa en segundo plano)"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"El estado es created\", function () { pm.expect(pm.response.json().status).to.eql(\"created\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "El mensaje quedó en la cola de fallidos (DLQ)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{rabbitUrl}}/api/queues/%2F/orders.created.dlq",
+                  "host": [
+                    "{{rabbitUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "queues",
+                    "%2F",
+                    "orders.created.dlq"
+                  ]
+                },
+                "description": "Consulta la API de administración de RabbitMQ (usuario guest). Requiere la variable rabbitUrl del environment.",
+                "auth": {
+                  "type": "basic",
+                  "basic": [
+                    {
+                      "key": "username",
+                      "value": "guest",
+                      "type": "string"
+                    },
+                    {
+                      "key": "password",
+                      "value": "guest",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "setTimeout(function () {}, 5500);  // da tiempo al worker (se procesa en segundo plano)"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"La DLQ tiene al menos un mensaje\", function () { pm.expect(pm.response.json().messages).to.be.at.least(1); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Nivel 4 - Operación",
+      "description": "RF-13, N4-01. El mismo X-Request-Id aparece en `docker compose logs api` y `docker compose logs worker`.",
+      "item": [
+        {
+          "name": "4.1 Correlación (X-Request-Id)",
+          "description": "RF-13.",
+          "item": [
+            {
+              "name": "Crear pedido con X-Request-Id (se devuelve el mismo)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-Request-Id",
+                    "value": "{{requestId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orders"
+                  ]
+                },
+                "description": "El id de correlación viaja en la respuesta, en el log de la API y en el evento (y de ahí al log del worker).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"customer_id\": \"cliente-correlacion\",\n  \"items\": [\n    {\n      \"sku\": \"A-1\",\n      \"quantity\": 2,\n      \"unit_price_cents\": 1500\n    },\n    {\n      \"sku\": \"B-2\",\n      \"quantity\": 1,\n      \"unit_price_cents\": 999\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"requestId\", \"demo-\" + pm.variables.replaceIn(\"{{$guid}}\"));"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 201\", function () { pm.response.to.have.status(201); });",
+                      "pm.test(\"Devuelve el mismo X-Request-Id\", function () { pm.expect(pm.response.headers.get(\"X-Request-Id\")).to.eql(pm.collectionVariables.get(\"requestId\")); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Los errores llevan el request_id",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Request-Id",
+                    "value": "{{requestId}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/nada",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "nada"
+                  ]
+                },
+                "description": "El cuerpo del error (RFC 9457) incluye el request_id de la petición."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 404\", function () { pm.response.to.have.status(404); });",
+                      "pm.test(\"El error trae el request_id enviado\", function () { pm.expect(pm.response.json().request_id).to.eql(pm.collectionVariables.get(\"requestId\")); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Sin X-Request-Id el servidor genera uno",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health/live",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "health",
+                    "live"
+                  ]
+                },
+                "description": "Si el cliente no envía el id, la API genera un UUID y lo devuelve."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Trae un X-Request-Id generado\", function () { pm.expect(pm.response.headers.get(\"X-Request-Id\")).to.have.lengthOf(36); });"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "4.2 Health y métricas",
+          "description": "N4-01.",
+          "item": [
+            {
+              "name": "Liveness (200)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health/live",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "health",
+                    "live"
+                  ]
+                },
+                "description": "El proceso responde."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"status ok\", function () { pm.expect(pm.response.json().status).to.eql(\"ok\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Readiness (200)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health/ready",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "health",
+                    "ready"
+                  ]
+                },
+                "description": "La base de datos responde."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"La base está ok\", function () { pm.expect(pm.response.json().checks.database).to.eql(\"ok\"); });"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Métricas en formato Prometheus (200)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/metrics",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "metrics"
+                  ]
+                },
+                "description": "Contador y duración de las peticiones HTTP."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Responde 200\", function () { pm.response.to.have.status(200); });",
+                      "pm.test(\"Incluye las métricas HTTP\", function () {",
+                      "    pm.expect(pm.response.text()).to.include(\"http_requests_total\");",
+                      "    pm.expect(pm.response.text()).to.include(\"http_request_duration_seconds\");",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "idemKey",
+      "value": ""
+    },
+    {
+      "key": "idemOrderId",
+      "value": ""
+    },
+    {
+      "key": "noKeyOrderId",
+      "value": ""
+    },
+    {
+      "key": "eventOrderId",
+      "value": ""
+    },
+    {
+      "key": "transientOrderId",
+      "value": ""
+    },
+    {
+      "key": "permanentOrderId",
+      "value": ""
+    },
+    {
+      "key": "requestId",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+# Levanta PostgreSQL, RabbitMQ, la API y el worker. Las credenciales son solo de ejemplo para desarrollo local;
+# se pueden cambiar con un archivo .env (ver .env.example).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-eventflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-eventflow}
+      POSTGRES_DB: ${DB_NAME:-eventflow}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # Volumen con nombre: los datos quedan en Docker, no dentro de la carpeta del proyecto.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-eventflow} -d ${DB_NAME:-eventflow}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      # Consola web del broker (usuario y clave de ejemplo: guest / guest): http://localhost:15672
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: .
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      PORT: 8080
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-eventflow}
+      DB_PASSWORD: ${DB_PASSWORD:-eventflow}
+      DB_NAME: ${DB_NAME:-eventflow}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-5000}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10}
+    # Compose espera 10 s antes de matar el contenedor; se da un margen sobre SHUTDOWN_TIMEOUT.
+    stop_grace_period: 15s
+    ports:
+      - "${PORT:-8080}:8080"
+    # La API arranca aunque RabbitMQ no esté: si el broker falla, el pedido igual se crea.
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    entrypoint: ["/worker"]
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-eventflow}
+      DB_PASSWORD: ${DB_PASSWORD:-eventflow}
+      DB_NAME: ${DB_NAME:-eventflow}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      NOTIFY_DELAY_MS: ${NOTIFY_DELAY_MS:-200}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10}
+    stop_grace_period: 15s
+    restart: on-failure
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pgdata:

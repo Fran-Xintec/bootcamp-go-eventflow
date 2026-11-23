@@ -1,0 +1,18 @@
+# Entorno local (el .env.example sí se versiona)
+.env
+.env.*
+!.env.example
+
+# Compilados y pruebas
+*.exe
+*.test
+*.out
+coverage/
+tmp/
+
+# Editor y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
